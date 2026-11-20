@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
-<title>Bio Link Card</title>
+<title>papeware</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,14 +48,18 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:1;back
 /* stage + card */
 .stage{position:relative;z-index:2;min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
   padding-block:48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.card{position:relative;width:100%;max-width:460px;display:flex;flex-direction:column;gap:18px;padding:30px 22px 22px;border-radius:24px;
+.card{--pt:30px;--px:22px;--pb:22px;position:relative;width:100%;max-width:460px;display:flex;flex-direction:column;gap:18px;padding:var(--pt) var(--px) var(--pb);border-radius:24px;
   background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(16px) saturate(120%);-webkit-backdrop-filter:blur(16px) saturate(120%);
   box-shadow:0 40px 90px -30px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.07);will-change:transform;overflow:hidden}
 .card::before{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;
   background:radial-gradient(420px circle at var(--mx,50%) var(--my,-10%),rgba(255,255,255,.08),transparent 45%)}
 
+/* void banner: black hole with a tilted glowing disk; follows the cursor, click for a shockwave */
+.banner{position:relative;height:140px;margin:calc(var(--pt) * -1) calc(var(--px) * -1) 0;background:#000;border-bottom:1px solid var(--line);cursor:crosshair;touch-action:pan-y;overflow:hidden}
+.banner canvas{display:block;width:100%;height:100%}
+.banner::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,transparent 50%,rgba(12,12,12,.7))}
 .head{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
-.avatar-wrap{position:relative;width:104px;height:104px}
+.avatar-wrap{position:relative;z-index:1;width:104px;height:104px;margin-top:-72px}
 .avatar{width:100%;height:100%;border-radius:50%;display:grid;place-items:center;overflow:hidden;
   font-family:var(--f-display);font-weight:700;font-size:2.1rem;color:#000;
   background:conic-gradient(from 210deg,#ffffff,#9a9a9a 35%,#2a2a2a 62%,#ffffff);
@@ -148,7 +152,8 @@ a.pl-title:hover{text-decoration:underline;text-underline-offset:3px}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
 @media (max-width:420px){
-  .card{padding:26px 16px 18px}
+  .card{--pt:26px;--px:16px;--pb:18px}
+  .banner{height:120px}
   .pl-bottom{grid-template-columns:auto 1fr auto auto 54px;gap:8px}
 }
 @media (prefers-reduced-motion:reduce){
@@ -168,6 +173,7 @@ a.pl-title:hover{text-decoration:underline;text-underline-offset:3px}
 
 <main class="stage">
   <article class="card" id="card">
+    <div class="banner" id="banner" aria-hidden="true"><canvas id="voidCanvas"></canvas></div>
     <header class="head">
       <div class="avatar-wrap">
         <div class="avatar" id="avatar"></div>
@@ -263,8 +269,7 @@ const CONFIG = {
       text: [
         "hey, i'm papeware, aka exu.",
         "i make videos on youtube and tiktok and put my code on github. always up, so hit me up whenever."
-      ],
-      chips: ["youtube", "tiktok", "github", "osu!", "central time"]
+      ]
     },
     setup: [
       ["cpu", "Intel Core i7-14700F"],
@@ -349,7 +354,7 @@ function showTab(k) {
   const T = CONFIG.tabs[k];
   $("tabpanel").setAttribute("aria-labelledby", "tab-" + k);
   $("tabpanel").innerHTML = k === "about"
-    ? T.text.map(p => `<p>${esc(p)}</p>`).join("") + `<div class="chips">${T.chips.map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>`
+    ? T.text.map(p => `<p>${esc(p)}</p>`).join("")
     : `<dl class="kv">${T.map(([a, b]) => `<dt>${esc(a)}</dt><dd>${esc(b)}</dd>`).join("")}</dl>`;
 }
 $("tablist").addEventListener("click", e => { const b = e.target.closest(".tab"); if (b) showTab(b.dataset.k); });
@@ -592,6 +597,78 @@ function drawViz(t) {
   $("pTime").textContent = d ? `${fmtT(c)} / ${fmtT(d)}` : "";
 }
 
+/* ---------- void banner ---------- */
+const banner = $("banner"), vc = $("voidCanvas"), vctx = vc.getContext("2d");
+const VOID = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, pulse: 0 };
+let BW = 0, BH = 0, RMAX = 200, motes = [];
+function newMote(anywhere) {
+  return {
+    a: Math.random() * Math.PI * 2,
+    r: anywhere ? 24 + Math.random() * RMAX : RMAX * (0.75 + Math.random() * 0.25),
+    s: 0.55 + Math.random() * 0.9,
+    w: Math.random() < 0.15 ? 1.7 : 0.9
+  };
+}
+function sizeBanner() {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  BW = banner.clientWidth; BH = banner.clientHeight;
+  vc.width = BW * dpr; vc.height = BH * dpr; vctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  vctx.fillStyle = "#000"; vctx.fillRect(0, 0, BW, BH);
+  RMAX = Math.max(BW, BH) * 0.62;
+  motes = Array.from({ length: 280 }, () => newMote(true));
+}
+sizeBanner();
+addEventListener("resize", sizeBanner);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+banner.addEventListener("pointermove", e => {
+  const r = banner.getBoundingClientRect();
+  VOID.tx = clamp((e.clientX - r.left) / r.width, 0.06, 0.94);
+  VOID.ty = clamp((e.clientY - r.top) / r.height, 0.12, 0.88);
+});
+banner.addEventListener("pointerleave", () => { VOID.tx = 0.5; VOID.ty = 0.5; });
+banner.addEventListener("pointerdown", () => { VOID.pulse = 1; });
+
+function drawMote(m, cx, cy, spd) {
+  const TILT = 0.34;
+  const x = cx + Math.cos(m.a) * m.r, y = cy + Math.sin(m.a) * m.r * TILT;
+  const tx0 = cx + Math.cos(m.a - spd * 4) * m.r, ty0 = cy + Math.sin(m.a - spd * 4) * m.r * TILT;
+  const near = clamp(1 - m.r / RMAX, 0, 1);
+  vctx.strokeStyle = `rgba(255,255,255,${(0.12 + near * 0.88) * (0.7 + level * 0.6)})`;
+  vctx.lineWidth = m.w * (0.6 + near);
+  vctx.beginPath(); vctx.moveTo(tx0, ty0); vctx.lineTo(x, y); vctx.stroke();
+}
+function drawVoid() {
+  if (!BW) return;
+  const v = VOID;
+  v.x += (v.tx - v.x) * 0.06; v.y += (v.ty - v.y) * 0.06; v.pulse *= 0.93;
+  const cx = v.x * BW, cy = v.y * BH;
+  const H = 16 + level * 7 + v.pulse * 8;
+  vctx.fillStyle = reduce ? "#000" : "rgba(0,0,0,0.24)";
+  vctx.fillRect(0, 0, BW, BH);
+  const g = vctx.createRadialGradient(cx, cy, H * 0.9, cx, cy, H * 5.5);
+  g.addColorStop(0, `rgba(255,255,255,${0.09 + level * 0.12 + v.pulse * 0.1})`);
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  vctx.fillStyle = g; vctx.fillRect(0, 0, BW, BH);
+  vctx.lineCap = "round";
+  const front = [];
+  for (const m of motes) {
+    const spd = m.s * 0.55 / Math.sqrt(Math.max(m.r, 12)) * (1 + level * 1.2);
+    if (!reduce) {
+      m.a += spd;
+      m.r += -(0.04 + 5 / m.r) * m.s + v.pulse * 2.4 * (RMAX / Math.max(m.r, 30)) * 0.2;
+      if (m.r < H * 0.95 || m.r > RMAX * 1.15) Object.assign(m, newMote(false));
+    }
+    if (Math.sin(m.a) > 0) front.push([m, spd]); else drawMote(m, cx, cy, spd);
+  }
+  // event horizon: back half of the disk disappears behind it
+  vctx.beginPath(); vctx.arc(cx, cy, H, 0, 6.283);
+  vctx.fillStyle = "#000"; vctx.fill();
+  vctx.shadowColor = "#fff"; vctx.shadowBlur = 14 + level * 22 + v.pulse * 20;
+  vctx.lineWidth = 1.4; vctx.strokeStyle = `rgba(255,255,255,${0.6 + level * 0.4})`; vctx.stroke();
+  vctx.shadowBlur = 0;
+  for (const [m, spd] of front) drawMote(m, cx, cy, spd);
+}
+
 /* ---------- tilt + cursor ---------- */
 const card = $("card");
 const tilt = { x: 0, y: 0, tx: 0, ty: 0 };
@@ -613,6 +690,7 @@ function frame(t) {
   drawField(t);
   drawTrail();
   drawViz(t);
+  drawVoid();
   if (!reduce && finePointer) {
     tilt.x += (tilt.tx - tilt.x) * 0.08; tilt.y += (tilt.ty - tilt.y) * 0.08;
     card.style.transform = `perspective(1100px) rotateX(${tilt.x.toFixed(2)}deg) rotateY(${tilt.y.toFixed(2)}deg)`;
